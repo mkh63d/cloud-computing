@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>File Upload</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                margin: 20px;
+            }
+            #response {
+                margin-top: 20px;
+                border: 1px solid #ccc;
+                padding: 10px;
+                background-color: #f9f9f9;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>File Upload</h1>
+        <form id="uploadForm" enctype="multipart/form-data">
+            <label for="token">Authorization Token:</label><br />
+            <input
+                type="text"
+                id="token"
+                name="token"
+                required
+                placeholder="Enter your token here"
+            />
+            <br /><br />
+            <label for="file">Select a file:</label><br />
+            <input type="file" name="file" id="file" required />
+            <br /><br />
+            <button type="submit">Upload</button>
+        </form>
+
+        <div id="response"></div>
+
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                document
+                    .getElementById('uploadForm')
+                    .addEventListener('submit', async function (event) {
+                        event.preventDefault();
+
+                        const formData = new FormData(this);
+                        const token = document.getElementById('token').value;
+
+                        try {
+                            // TODO for sure rm localhost
+                            const response = await fetch('http://localhost:3000/upload', {
+                                method: 'POST',
+                                body: formData,
+                                headers: {
+                                    Authorization: `Bearer ${token}`,
+                                },
+                            });
+
+                            const result = await response.json();
+                            document.getElementById('response').innerText = JSON.stringify(
+                                result,
+                                null,
+                                2
+                            );
+                        } catch (err) {
+                            console.error('Error uploading file:', err);
+                            document.getElementById('response').innerText =
+                                'Upload failed: ' + err.message;
+                        }
+                    });
+            });
+        </script>
+    </body>
+</html>
