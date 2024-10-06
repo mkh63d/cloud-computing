@@ -1,18 +1,19 @@
 const fastify = require('fastify')({ logger: true });
-const path = require('path');
-const fs = require('fs').promises;
-const sqlite3 = require('sqlite3').verbose();
 const crypto = require('crypto');
 const fastifyCors = require('@fastify/cors');
 const { BlobServiceClient } = require('@azure/storage-blob');
 require('dotenv').config();
+const { PrismaClient } = require('@prisma/client');
+const { ServiceActionType } = require('@prisma/client');
+const bcrypt = require('bcrypt');
 
 fastify.register(require('@fastify/multipart'));
 
 const AZURE_STORAGE_CONNECTION_STRING = process.env.AZURE_STORAGE_CONNECTION_STRING;
+const containerName = process.env.AZURE_STORAGE_CONTAINER || 'default-container';
 
 const blobServiceClient = BlobServiceClient.fromConnectionString(AZURE_STORAGE_CONNECTION_STRING);
-const containerClient = blobServiceClient.getContainerClient('mycontainer');
+const containerClient = blobServiceClient.getContainerClient(containerName);
 
 async function createContainer() {
     try {
@@ -30,16 +31,7 @@ fastify.register(fastifyCors, {
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
 });
 
-const db = new sqlite3.Database('./file_log.db');
-
-db.serialize(() => {
-    db.run(
-        `CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT, password TEXT, token TEXT)`
-    );
-    db.run(
-        `CREATE TABLE IF NOT EXISTS file_logs (id INTEGER PRIMARY KEY, user_id INTEGER, action TEXT, filename TEXT, timestamp TEXT)`
-    );
-});
+const prisma = new PrismaClient();
 
 /**
  * Generates token.
@@ -50,47 +42,55 @@ function generateToken() {
     return crypto.randomBytes(16).toString('hex');
 }
 
-fastify.decorate('authenticate', (request, reply, done) => {
+// Authentication Middleware
+fastify.decorate('authenticate', async (request, reply) => {
     const authHeader = request.headers['authorization'];
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
         return reply.code(401).send({ error: 'Unauthorized' });
     }
 
-    const token = authHeader.split(' ')[1];
-    db.get(`SELECT * FROM users WHERE token = ?`, [token], (err, user) => {
-        if (err || !user) {
-            return reply.code(401).send({ error: 'Invalid token' });
-        }
-        request.user = user;
-        done();
-    });
+    const authToken = authHeader.split(' ')[1];
+    const user = await prisma.user.findUnique({ where: { token: authToken } });
+
+    if (!user) {
+        return reply.code(401).send({ error: 'Invalid auth token' });
+    }
+
+    request.user = user;
 });
 
-fastify.post('/register', (request, reply) => {
-    const { username, password } = request.body;
+// User Registration
+fastify.post('/register', async (request, reply) => {
+    const { name, email, password } = request.body;
     const token = generateToken();
 
-    db.run(
-        `INSERT INTO users (username, password, token) VALUES (?, ?, ?)`,
-        [username, password, token],
-        function (err) {
-            if (err) return reply.send(err);
-            reply.send({ message: 'User registered', token });
-        }
-    );
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    try {
+        const newUser = await prisma.user.create({
+            data: {
+                name,
+                email,
+                password: hashedPassword,
+                token,
+            },
+        });
+        return reply.send({ message: 'User registered successfully', newUser, token });
+    } catch (err) {
+        return reply.send({ error: 'User registration failed', full_err: err });
+    }
 });
 
-fastify.post('/login', (request, reply) => {
-    const { username, password } = request.body;
+// User Login
+fastify.post('/login', async (request, reply) => {
+    const { name, password } = request.body;
 
-    db.get(
-        `SELECT * FROM users WHERE username = ? AND password = ?`,
-        [username, password],
-        (err, user) => {
-            if (err || !user) return reply.send({ error: 'Invalid credentials' });
-            reply.send({ token: user.token });
-        }
-    );
+    const user = await prisma.user.findUnique({ where: { name, password } });
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+        return reply.send({ error: 'Invalid credentials' });
+    }
+
+    return reply.send({ message: 'User logged successfully', user, toke: user.token });
 });
 
 async function streamToBuffer(readableStream) {
@@ -101,11 +101,12 @@ async function streamToBuffer(readableStream) {
     return Buffer.concat(chunks);
 }
 
-const uploadsDir = path.join(__dirname, 'uploads');
-fs.mkdir(uploadsDir, { recursive: true })
-    .then(() => fastify.log.info('Uploads directory is ready'))
-    .catch(err => fastify.log.error('Error creating uploads directory:', err));
+function dd(data) {
+    console.log(data);
+    process.exit();
+}
 
+// File Upload
 fastify.post('/upload', { preValidation: [fastify.authenticate] }, async (request, reply) => {
     try {
         const data = await request.file();
@@ -114,29 +115,33 @@ fastify.post('/upload', { preValidation: [fastify.authenticate] }, async (reques
             return reply.status(400).send({ error: 'No file provided' });
         }
 
-        const filename = data.filename;
+        // why this is promise?
+        const user = await request.user;
 
-        const blockBlobClient = containerClient.getBlockBlobClient(filename);
-
+        const blobName = `${user.uuid}$${data.filename}$${Date.now()}`;
+        const blockBlobClient = containerClient.getBlockBlobClient(blobName);
         const buffer = await data.toBuffer();
 
-        await blockBlobClient.upload(buffer, buffer.length);
-        fastify.log.info(`Uploaded to Azure Blob Storage: ${filename}`);
+        const uploadBlobResponse = await blockBlobClient.upload(buffer, buffer.length);
+        fastify.log.info(`Uploaded to Azure Blob Storage: ${blobName}`);
+        const blobPath = blockBlobClient.url;
 
-        db.run(
-            `INSERT INTO file_logs (user_id, action, filename, timestamp) VALUES (?, ?, ?, ?)`,
-            [request.user.id, 'UPLOAD', filename, new Date().toISOString()],
-            err => {
-                if (err) {
-                    fastify.log.error('Error logging file upload to database:', err);
-                    return reply
-                        .code(500)
-                        .send({ error: 'Database logging failed', full_err: err });
-                }
-            }
-        );
+        await prisma.file.create({
+            data: {
+                name: blobName,
+                blobPath: blobPath,
+                userId: user.id,
+            },
+        });
 
-        return reply.send({ uploaded: true, filename });
+        await prisma.serviceActionLog.create({
+            data: {
+                userId: user.id,
+                action: ServiceActionType.UPLOAD,
+            },
+        });
+
+        return reply.send({ uploaded: true, blobName });
     } catch (err) {
         fastify.log.error('Error during file upload:', err);
         return reply.status(500).send({ error: 'File upload failed', full_err: err });
@@ -166,21 +171,25 @@ fastify.get(
             const downloadResponse = await blockBlobClient.download(0);
             const downloadedContent = await streamToBuffer(downloadResponse.readableStreamBody);
 
+            await prisma.serviceActionLog.create({
+                data: {
+                    userId: request.user.id,
+                    action: ServiceActionType.DOWNLOAD,
+                    filename,
+                },
+            });
+
             reply.header('Content-Disposition', `attachment; filename="${filename}"`);
             reply.send(downloadedContent);
-
-            db.run(
-                `INSERT INTO file_logs (user_id, action, filename, timestamp) VALUES (?, ?, ?, ?)`,
-                [request.user.id, 'DOWNLOAD', filename, new Date().toISOString()]
-            );
         } catch (err) {
             reply.send(err);
         }
     }
 );
 
-fastify.get('/', function handler(request, reply) {
-    reply.send({ hello: 'world' });
+// Health check endpoint
+fastify.get('/health', async (request, reply) => {
+    return { status: 'ok', message: 'Service is running' };
 });
 
 const APP_PORT = process.env.APP_PORT || 3000;
