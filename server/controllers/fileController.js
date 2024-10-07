@@ -72,6 +72,8 @@ async function streamToBuffer(readableStream) {
 exports.download = async (request, reply) => {
     const { filename } = request.params;
 
+    const user = await request.user;
+
     try {
         const blockBlobClient = containerClient.getBlockBlobClient(filename);
         const downloadResponse = await blockBlobClient.download(0);
@@ -79,9 +81,8 @@ exports.download = async (request, reply) => {
 
         await prisma.serviceActionLog.create({
             data: {
-                userId: request.user.id,
+                userId: user.id,
                 action: ServiceActionType.DOWNLOAD,
-                filename,
             },
         });
 
