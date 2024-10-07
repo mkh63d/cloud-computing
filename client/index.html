@@ -1,75 +1,147 @@
 <!DOCTYPE html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>File Upload</title>
-        <style>
-            body {
-                font-family: Arial, sans-serif;
-                margin: 20px;
-            }
-            #response {
-                margin-top: 20px;
-                border: 1px solid #ccc;
-                padding: 10px;
-                background-color: #f9f9f9;
-            }
-        </style>
-    </head>
-    <body>
-        <h1>File Upload</h1>
-        <form id="uploadForm" enctype="multipart/form-data">
-            <label for="token">Authorization Token:</label><br />
-            <input
-                type="text"
-                id="token"
-                name="token"
-                required
-                placeholder="Enter your token here"
-            />
-            <br /><br />
-            <label for="file">Select a file:</label><br />
-            <input type="file" name="file" id="file" required />
-            <br /><br />
-            <button type="submit">Upload</button>
-        </form>
+    <html lang="en">
+        <head>
+            <meta charset="UTF-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <title>File Upload & Download</title>
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    margin: 20px;
+                }
+                #response {
+                    margin-top: 20px;
+                    border: 1px solid #ccc;
+                    padding: 10px;
+                    background-color: #f9f9f9;
+                }
+                .file-item {
+                    margin-bottom: 10px;
+                }
+            </style>
+        </head>
+        <body>
+            <h1>File Upload & Download</h1>
 
-        <div id="response"></div>
+            <form id="uploadForm" enctype="multipart/form-data">
+                <label for="token">Authorization Token:</label><br />
+                <input
+                    type="text"
+                    id="token"
+                    name="token"
+                    required
+                    placeholder="Enter your token here"
+                />
+                <br /><br />
+                <label for="file">Select a file:</label><br />
+                <input type="file" name="file" id="file" required />
+                <br /><br />
+                <button type="submit">Upload</button>
+            </form>
 
-        <script>
-            document.addEventListener('DOMContentLoaded', function () {
-                document
-                    .getElementById('uploadForm')
-                    .addEventListener('submit', async function (event) {
-                        event.preventDefault();
+            <div id="uploadResponse"></div>
 
-                        const formData = new FormData(this);
-                        const token = document.getElementById('token').value;
+            <h2>Available Files</h2>
+            <button id="refreshList">Refresh List</button>
 
+            <div id="fileList"></div>
+            <button id="downloadSelected">Download Selected Files</button>
+            <div id="downloadResponse"></div>
+
+            <script>
+                document.addEventListener('DOMContentLoaded', function () {
+                    const tokenInput = document.getElementById('token');
+                    const uploadResponse = document.getElementById('uploadResponse');
+                    const fileList = document.getElementById('fileList');
+                    const downloadResponse = document.getElementById('downloadResponse');
+
+                    document
+                        .getElementById('uploadForm')
+                        .addEventListener('submit', async function (event) {
+                            event.preventDefault();
+
+                            const formData = new FormData(this);
+                            const token = tokenInput.value;
+
+                            try {
+                                // TODO for sure rm localhost
+                                const response = await fetch('http://localhost:3000/files/upload', {
+                                    method: 'POST',
+                                    body: formData,
+                                    headers: {
+                                        Authorization: `Bearer ${token}`,
+                                    },
+                                });
+
+                                const result = await response.json();
+                                uploadResponse.innerText = JSON.stringify(result, null, 2);
+                                loadFileList(token);
+                            } catch (err) {
+                                console.error('Error uploading file:', err);
+                                uploadResponse.innerText = 'Upload failed: ' + err.message;
+                            }
+                        });
+
+                    async function loadFileList(token) {
                         try {
-                            // TODO for sure rm localhost
-                            const response = await fetch('http://localhost:3000/upload', {
-                                method: 'POST',
-                                body: formData,
-                                headers: {
-                                    Authorization: `Bearer ${token}`,
-                                },
+                            const response = await fetch('http://localhost:3000/files/list', {
+                                headers: { Authorization: `Bearer ${token}` },
                             });
-
-                            const result = await response.json();
-                            document.getElementById('response').innerText = JSON.stringify(
-                                result,
-                                null,
-                                2
-                            );
+                            const files = await response.json();
+                            fileList.innerHTML = '';
+                            files.forEach(file => {
+                                const fileItem = document.createElement('div');
+                                fileItem.className = 'file-item';
+                                fileItem.innerHTML = `
+                                <input type="checkbox" name="fileCheckbox" value="${file}" />
+                                ${file}
+                            `;
+                                fileList.appendChild(fileItem);
+                            });
                         } catch (err) {
-                            console.error('Error uploading file:', err);
-                            document.getElementById('response').innerText =
-                                'Upload failed: ' + err.message;
+                            fileList.innerText = 'Failed to load files: ' + err.message;
                         }
+                    }
+
+                    document
+                        .getElementById('downloadSelected')
+                        .addEventListener('click', async function () {
+                            const token = tokenInput.value;
+                            const selectedFiles = [
+                                ...document.querySelectorAll('input[name="fileCheckbox"]:checked'),
+                            ];
+                            if (selectedFiles.length === 0) {
+                                downloadResponse.innerText = 'No files selected for download.';
+                                return;
+                            }
+
+                            selectedFiles.forEach(async file => {
+                                try {
+                                    const response = await fetch(
+                                        `http://localhost:3000/files/download/${file.value}`,
+                                        {
+                                            headers: { Authorization: `Bearer ${token}` },
+                                        }
+                                    );
+                                    const blob = await response.blob();
+                                    const link = document.createElement('a');
+                                    link.href = URL.createObjectURL(blob);
+                                    link.download = file.value;
+                                    document.body.appendChild(link);
+                                    link.click();
+                                    document.body.removeChild(link);
+                                } catch (err) {
+                                    downloadResponse.innerText = 'Download failed: ' + err.message;
+                                }
+                            });
+                        });
+
+                    document.getElementById('refreshList').addEventListener('click', function () {
+                        loadFileList(tokenInput.value);
                     });
-            });
-        </script>
-    </body>
+                });
+            </script>
+        </body>
+    </html>
 </html>
