@@ -61,6 +61,75 @@ exports.store = async (request, reply) => {
     }
 };
 
+exports.multistore = async (request, reply) => {
+    try {
+        const parts = request.files();
+        const user = await request.user;
+
+        const successfulUploads = [];
+        const failedUploads = [];
+
+        //TODO: make it run in parallel
+        for await (const part of parts) {
+            if (part.type === 'file') {
+                try {
+                    const blobName = `${Date.now()}___${user.uuid}___${part.filename}`;
+                    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+                    const blobPath = blockBlobClient.url;
+
+                    const uploadBlobResponse = await blockBlobClient.uploadStream(part.file);
+                    const properties = await blockBlobClient.getProperties();
+
+                    const fileSize = properties.contentLength;
+
+                    const file = await prisma.file.create({
+                        data: {
+                            name: part.filename,
+                            blobPath,
+                            userId: user.id,
+                            size: fileSize,
+                        },
+                    });
+
+                    await prisma.serviceActionLog.create({
+                        data: {
+                            userId: user.id,
+                            fileId: file.id,
+                            action: ServiceActionType.UPLOAD,
+                        },
+                    });
+                    // await pump(part.file, fs.createWriteStream(`./uploads/${part.filename}`));
+
+                    successfulUploads.push({
+                        filename: part.filename,
+                        blobName,
+                        size: fileSize,
+                    });
+                } catch (fileError) {
+                    console.error(`Failed to upload file: ${part.filename}`, fileError);
+                    failedUploads.push({
+                        filename: part.filename,
+                        error: fileError.message,
+                    });
+                }
+            }
+        }
+
+        reply.send({
+            uploaded: successfulUploads.length,
+            message:
+                successfulUploads.length > 0
+                    ? 'Files uploaded successfully'
+                    : 'No files were uploaded',
+            successfulUploads,
+            failedUploads,
+        });
+    } catch (err) {
+        console.error('Error in multistore:', err);
+        reply.status(500).send({ error: 'File upload failed', message: err.message });
+    }
+};
+
 async function streamToBuffer(readableStream) {
     const chunks = [];
     for await (const chunk of readableStream) {
