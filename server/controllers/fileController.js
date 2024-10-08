@@ -1,63 +1,47 @@
+const JSZip = require('jszip');
+
 const prisma = require('../services/prismaService.js');
 const { ServiceActionType } = require('@prisma/client');
 const { containerClient } = require('../services/azureBlobService.js');
 
-exports.index = async (request, reply) => {
+exports.list = async (request, reply) => {
     try {
-        const blobList = [];
-        for await (const blob of containerClient.listBlobsFlat()) {
-            blobList.push(blob.name);
-        }
-        reply.send(blobList);
-    } catch (err) {
-        reply.send(err);
-    }
-};
-
-exports.store = async (request, reply) => {
-    // think about adding here transactions to avoid saving file in db if it's not uploaded to blob storage
-    try {
-        const data = await request.file();
-
-        if (!data) {
-            return reply.status(400).send({ error: 'No file provided' });
-        }
-
         const user = await request.user;
-        const blobName = `${user.uuid}___${data.filename}___${Date.now()}`;
+        const { page = 1, limit = 30 } = request.query;
 
-        const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-        const blobPath = blockBlobClient.url;
+        const pageNumber = parseInt(page);
+        const pageSize = parseInt(limit);
 
-        // with huge files, pivot to streams
-        const buffer = await data.toBuffer();
-
-        const uploadBlobResponse = await blockBlobClient.upload(buffer, buffer.length);
-
-        if (uploadBlobResponse._response.status !== 201) {
-            throw new Error(
-                'Blob upload failed with status: ' + uploadBlobResponse._response.status
-            );
-        }
-
-        await prisma.file.create({
-            data: {
-                name: blobName,
-                blobPath,
+        const totalFiles = await prisma.file.count({
+            where: {
                 userId: user.id,
             },
         });
+        const skip = (pageNumber - 1) * pageSize; // offset
 
-        await prisma.serviceActionLog.create({
-            data: {
+        const userFiles = await prisma.file.findMany({
+            where: {
                 userId: user.id,
-                action: ServiceActionType.UPLOAD,
             },
+            select: {
+                uuid: true,
+                name: true,
+                size: true,
+                createdAt: true,
+            },
+            skip: skip,
+            take: pageSize,
         });
 
-        reply.send({ uploaded: true, blobName });
+        reply.send({
+            totalFiles,
+            totalPages: Math.ceil(totalFiles / pageSize),
+            currentPage: pageNumber,
+            files: userFiles,
+        });
     } catch (err) {
-        reply.status(500).send({ error: 'File upload failed', message: err.message });
+        console.error('Error in fetching paginated file list:', err);
+        reply.status(500).send({ error: 'Failed to list files', message: err.message });
     }
 };
 
@@ -131,33 +115,70 @@ exports.multistore = async (request, reply) => {
 };
 
 async function streamToBuffer(readableStream) {
-    const chunks = [];
-    for await (const chunk of readableStream) {
-        chunks.push(chunk);
-    }
-    return Buffer.concat(chunks);
+    return new Promise((resolve, reject) => {
+        const chunks = [];
+        readableStream.on('data', chunk => chunks.push(chunk));
+        readableStream.on('end', () => resolve(Buffer.concat(chunks)));
+        readableStream.on('error', reject);
+    });
 }
 
-exports.download = async (request, reply) => {
-    const { filename } = request.params;
-
-    const user = await request.user;
-
+exports.multiDownload = async (request, reply) => {
     try {
-        const blockBlobClient = containerClient.getBlockBlobClient(filename);
-        const downloadResponse = await blockBlobClient.download(0);
-        const downloadedContent = await streamToBuffer(downloadResponse.readableStreamBody);
+        const { filesUuids } = request.body;
+        const user = await request.user;
 
-        await prisma.serviceActionLog.create({
-            data: {
+        const files = await prisma.file.findMany({
+            where: {
+                uuid: {
+                    in: filesUuids,
+                },
                 userId: user.id,
-                action: ServiceActionType.DOWNLOAD,
             },
         });
 
-        reply.header('Content-Disposition', `attachment; filename="${filename}"`);
-        reply.send(downloadedContent);
+        if (files.length !== filesUuids.length) {
+            return reply.status(404).send({
+                error: 'Some files were not found or do not belong to currently logged user',
+            });
+        }
+
+        const zip = new JSZip();
+
+        for (const file of files) {
+            try {
+                const blobName = file.blobPath.split('/').pop();
+                const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+                const downloadResponse = await blockBlobClient.download(0);
+
+                const downloadedBufferedContent = await streamToBuffer(
+                    downloadResponse.readableStreamBody
+                );
+
+                zip.file(file.name, downloadedBufferedContent);
+            } catch (err) {
+                console.error(`Error while downloading file: ${file.blobPath}`, err);
+                return reply.status(500).send({ error: `Failed to download file: ${file.name}` });
+            }
+        }
+
+        const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
+
+        await prisma.serviceActionLog.createMany({
+            data: files.map(file => ({
+                userId: user.id,
+                fileId: file.id,
+                action: ServiceActionType.DOWNLOAD,
+            })),
+        });
+
+        const attachmentName = String(Date.now()) + '_downloaded_files.zip';
+        reply
+            .header('Content-Disposition', `attachment; filename="${attachmentName}"`)
+            .header('Content-Type', 'application/zip')
+            .send(zipBuffer);
     } catch (err) {
-        reply.send(err);
+        console.error('Error in multipleDownload:', err);
+        reply.status(500).send({ error: 'Download failed', message: err.message });
     }
 };
