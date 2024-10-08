@@ -45,7 +45,9 @@
             <h2>Available Files</h2>
             <button id="refreshList">Refresh List</button>
 
+            <div id="paginationControls"></div>
             <div id="fileList"></div>
+
             <button id="downloadSelected">Download Selected Files</button>
             <div id="downloadResponse"></div>
 
@@ -98,58 +100,105 @@
                             }
                         });
 
-                    async function loadFileList(token) {
+                    let currentPage = 1;
+                    let totalPages = 1;
+                    async function loadFileList(token, page = 1) {
                         try {
-                            const response = await fetch('http://localhost:3000/files/list', {
-                                headers: { Authorization: `Bearer ${token}` },
-                            });
-                            const files = await response.json();
+                            const response = await fetch(
+                                `http://localhost:3000/files/list?page=${page}`,
+                                {
+                                    headers: { Authorization: `Bearer ${token}` },
+                                }
+                            );
+                            const data = await response.json();
+
                             fileList.innerHTML = '';
-                            files.forEach(file => {
-                                const fileItem = document.createElement('div');
-                                fileItem.className = 'file-item';
-                                fileItem.innerHTML = `
-                                <input type="checkbox" name="fileCheckbox" value="${file}" />
-                                ${file}
-                            `;
-                                fileList.appendChild(fileItem);
-                            });
+                            if (data.files.length > 0) {
+                                data.files.forEach(file => {
+                                    const fileItem = document.createElement('div');
+                                    fileItem.className = 'file-item';
+                                    fileItem.innerHTML = `
+                                        <input type="checkbox" name="fileCheckbox" value="${file.uuid}" />
+                                        ${file.name} (Size: ${file.size} bytes)
+                                    `;
+                                    fileList.appendChild(fileItem);
+                                });
+                            } else {
+                                fileList.innerText = 'No files available.';
+                            }
+
+                            currentPage = data.currentPage;
+                            totalPages = data.totalPages;
+                            updatePaginationControls();
                         } catch (err) {
                             fileList.innerText = 'Failed to load files: ' + err.message;
                         }
+                    }
+
+                    function updatePaginationControls() {
+                        const paginationControls = document.getElementById('paginationControls');
+                        paginationControls.innerHTML = `
+                            <button id="prevPage" ${
+                                currentPage === 1 ? 'disabled' : ''
+                            }>Previous</button>
+                            <span>Page ${currentPage} of ${totalPages}</span>
+                            <button id="nextPage" ${
+                                currentPage === totalPages ? 'disabled' : ''
+                            }>Next</button>
+                        `;
+
+                        document.getElementById('prevPage').addEventListener('click', () => {
+                            if (currentPage > 1) loadFileList(tokenInput.value, currentPage - 1);
+                        });
+
+                        document.getElementById('nextPage').addEventListener('click', () => {
+                            if (currentPage < totalPages)
+                                loadFileList(tokenInput.value, currentPage + 1);
+                        });
                     }
 
                     document
                         .getElementById('downloadSelected')
                         .addEventListener('click', async function () {
                             const token = tokenInput.value;
-                            const selectedFiles = [
+                            const selectedFilesUuids = [
                                 ...document.querySelectorAll('input[name="fileCheckbox"]:checked'),
-                            ];
-                            if (selectedFiles.length === 0) {
+                            ].map(file => file.value);
+
+                            if (selectedFilesUuids.length === 0) {
                                 downloadResponse.innerText = 'No files selected for download.';
                                 return;
                             }
 
-                            selectedFiles.forEach(async file => {
-                                try {
-                                    const response = await fetch(
-                                        `http://localhost:3000/files/download/${file.value}`,
-                                        {
-                                            headers: { Authorization: `Bearer ${token}` },
-                                        }
-                                    );
-                                    const blob = await response.blob();
-                                    const link = document.createElement('a');
-                                    link.href = URL.createObjectURL(blob);
-                                    link.download = file.value;
-                                    document.body.appendChild(link);
-                                    link.click();
-                                    document.body.removeChild(link);
-                                } catch (err) {
-                                    downloadResponse.innerText = 'Download failed: ' + err.message;
+                            try {
+                                const response = await fetch(
+                                    'http://localhost:3000/files/download-multiple',
+                                    {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                            Authorization: `Bearer ${token}`,
+                                        },
+                                        body: JSON.stringify({ filesUuids: selectedFilesUuids }),
+                                    }
+                                );
+
+                                if (!response.ok) {
+                                    throw new Error('Failed to download files');
+                                    return;
                                 }
-                            });
+                                const blob = await response.blob();
+                                const link = document.createElement('a');
+                                link.href = URL.createObjectURL(blob);
+                                link.download = `${Date.now()}_downloaded_files.zip`;
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+
+                                downloadResponse.innerText = 'Files downloaded successfully.';
+                            } catch (err) {
+                                downloadResponse.innerText = 'Download failed: ' + err.message;
+                            }
                         });
 
                     document.getElementById('refreshList').addEventListener('click', function () {
