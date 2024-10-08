@@ -2,7 +2,11 @@ const fastify = require('fastify')({ logger: true });
 // fastify.log.level = 'debug';
 require('dotenv').config();
 
-fastify.register(require('@fastify/multipart'));
+fastify.register(require('@fastify/multipart'), {
+    limits: {
+        fileSize: 50 * 1024 * 1024 // max file size to 50MB
+    }
+});
 const fastifyCors = require('@fastify/cors');
 
 fastify.register(fastifyCors, { origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE'] });
