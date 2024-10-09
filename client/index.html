@@ -24,16 +24,61 @@
         <body>
             <h1>File Upload & Download</h1>
 
-            <form id="uploadForm" enctype="multipart/form-data">
-                <label for="token">Authorization Token:</label><br />
+            <h2>Registration</h2>
+            <form id="registerForm">
+                <label for="registerEmail">Email:</label><br />
+                <input
+                    type="email"
+                    id="registerEmail"
+                    name="email"
+                    required
+                    placeholder="Enter your email"
+                /><br /><br />
+                <label for="username">Name:</label><br />
                 <input
                     type="text"
-                    id="token"
-                    name="token"
+                    id="registerName"
+                    id="name"
+                    name="name"
                     required
-                    placeholder="Enter your token here"
+                    placeholder="Enter your name"
                 />
-                <br /><br />
+                <br />
+                <label for="registerPassword">Password:</label><br />
+                <input
+                    type="password"
+                    id="registerPassword"
+                    name="password"
+                    required
+                    placeholder="Enter your password"
+                /><br /><br />
+                <button type="submit">Register</button>
+            </form>
+            <div id="registerResponse"></div>
+
+            <h2>Login</h2>
+            <form id="loginForm">
+                <label for="loginEmail">Email:</label><br />
+                <input
+                    type="email"
+                    id="loginEmail"
+                    name="email"
+                    required
+                    placeholder="Enter your email"
+                /><br /><br />
+                <label for="loginPassword">Password:</label><br />
+                <input
+                    type="password"
+                    id="loginPassword"
+                    name="password"
+                    required
+                    placeholder="Enter your password"
+                /><br /><br />
+                <button type="submit">Login</button>
+            </form>
+            <div id="loginResponse"></div>
+
+            <form id="uploadForm" enctype="multipart/form-data">
                 <label for="file">Select files:</label><br />
                 <input type="file" multiple name="file" id="filesInput" required />
                 <br /><br />
@@ -53,7 +98,6 @@
 
             <script>
                 document.addEventListener('DOMContentLoaded', function () {
-                    const tokenInput = document.getElementById('token');
                     const uploadResponse = document.getElementById('uploadResponse');
                     const fileList = document.getElementById('fileList');
                     const downloadResponse = document.getElementById('downloadResponse');
@@ -61,12 +105,70 @@
                     const filesInput = document.getElementById('filesInput');
 
                     document
+                        .getElementById('registerForm')
+                        .addEventListener('submit', async function (event) {
+                            event.preventDefault();
+                            const email = document.getElementById('registerEmail').value;
+                            const name = document.getElementById('registerName').value;
+                            const password = document.getElementById('registerPassword').value;
+
+                            try {
+                                const response = await fetch('http://localhost:3000/register', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ email, name, password }),
+                                });
+                                const data = await response.json();
+
+                                if (data.token) {
+                                    localStorage.setItem('authToken', data.token);
+                                }
+                                document.getElementById('registerResponse').innerText =
+                                    data.message || 'Registration successful!';
+                            } catch (error) {
+                                document.getElementById('registerResponse').innerText =
+                                    'Registration failed: ' + error.message;
+                            }
+                        });
+
+                    document
+                        .getElementById('loginForm')
+                        .addEventListener('submit', async function (event) {
+                            event.preventDefault();
+                            const email = document.getElementById('loginEmail').value;
+                            const password = document.getElementById('loginPassword').value;
+
+                            try {
+                                const response = await fetch('http://localhost:3000/login', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ email, password }),
+                                });
+                                const data = await response.json();
+                                if (data.token) {
+                                    localStorage.setItem('authToken', data.token);
+                                }
+                                document.getElementById('loginResponse').innerText =
+                                    'Login successful!';
+                            } catch (error) {
+                                document.getElementById('loginResponse').innerText =
+                                    'Login failed: ' + error.message;
+                            }
+                        });
+
+                    document
                         .getElementById('uploadForm')
                         .addEventListener('submit', async function (event) {
                             event.preventDefault();
 
                             const files = filesInput.files;
-                            const token = tokenInput.value;
+                            const token = localStorage.getItem('authToken');
+
+                            if (!token) {
+                                alert('You must be logged in to upload files');
+                                return;
+                            }
+
                             const formData = new FormData();
 
                             if (files.length === 0) {
@@ -103,6 +205,11 @@
                     let currentPage = 1;
                     let totalPages = 1;
                     async function loadFileList(token, page = 1) {
+                        if (!token) {
+                            alert('You must be logged in to upload files');
+                            return;
+                        }
+
                         try {
                             const response = await fetch(
                                 `http://localhost:3000/files/list?page=${page}`,
@@ -202,7 +309,7 @@
                         });
 
                     document.getElementById('refreshList').addEventListener('click', function () {
-                        loadFileList(tokenInput.value);
+                        loadFileList(localStorage.getItem('authToken'));
                     });
                 });
             </script>
