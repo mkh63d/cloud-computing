@@ -1,0 +1,35 @@
+# Fetching the minified node image on apline linux
+FROM node:20.12-alpine3.19
+
+# Setting up the work directory
+WORKDIR /app
+
+# Declaring env
+# ARG NODE_ENV=development
+ARG NODE_ENV=production
+ENV NODE_ENV=$NODE_ENV
+
+ENV AZURE_STORAGE_CONNECTION_STRING=PLACEHOLDER_CONNECTION_STRING
+ENV DATABASE_URL="DB://USER:PASSWORD@IP:PORT/DB_NAME"
+ENV AZURE_STORAGE_CONTAINER=dev-container
+ENV VIRTUAL_HOST=PUT_YOUR_DOMAIN
+ENV LETSENCRYPT_HOST=PUT_YOUR_DOMAIN
+
+COPY package.json /app
+
+# Installing dependencies
+RUN npm install
+
+RUN npm install pm2 -g
+
+# Copying all the files in our project
+COPY . /app
+
+# Exposing server port
+EXPOSE 3000
+
+# Starting our application DEV mode
+# CMD [ "node", "index.js" ]
+
+# Starting our application PROD mode and keeping the container alive
+CMD ["sh", "-c", "pm2 start process.yml && tail -f /dev/null"]
