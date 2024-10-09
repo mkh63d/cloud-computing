@@ -1,0 +1,51 @@
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+model User {
+    id              Int                @id @default(autoincrement())
+    uuid            String             @default(uuid())
+    email           String             @unique
+    password        String
+    name            String
+    token           String?            @unique
+    createdAt       DateTime           @default(now())
+    updatedAt       DateTime           @updatedAt
+    files           File[]             @relation("UserFiles")
+    servceActonLogs ServiceActionLog[] @relation("UserServiceActionLogs")
+}
+
+model File {
+    id                Int                @id @default(autoincrement())
+    uuid              String             @default(uuid())
+    name              String
+    blobPath          String             @unique
+    size              Int                // in bytes
+    userId            Int
+    user              User               @relation("UserFiles", fields: [userId], references: [id])
+    serviceActionLogs ServiceActionLog[] @relation("FileServiceActionLogs")
+    createdAt         DateTime           @default(now())
+    updatedAt         DateTime           @updatedAt
+}
+
+enum ServiceActionType {
+    UPLOAD
+    DOWNLOAD
+}
+
+model ServiceActionLog {
+    id        Int               @id @default(autoincrement())
+    uuid      String            @default(uuid())
+    userId    Int
+    user      User              @relation("UserServiceActionLogs", fields: [userId], references: [id])
+    fileId    Int?
+    file      File?             @relation("FileServiceActionLogs", fields: [fileId], references: [id])
+    action    ServiceActionType
+    createdAt DateTime          @default(now())
+    updatedAt DateTime          @updatedAt
+}
