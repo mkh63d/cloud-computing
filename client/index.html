@@ -98,6 +98,8 @@
 
             <script>
                 document.addEventListener('DOMContentLoaded', function () {
+                    const apiUrl = 'http://localhost:3000';
+
                     const uploadResponse = document.getElementById('uploadResponse');
                     const fileList = document.getElementById('fileList');
                     const downloadResponse = document.getElementById('downloadResponse');
@@ -113,7 +115,7 @@
                             const password = document.getElementById('registerPassword').value;
 
                             try {
-                                const response = await fetch('http://localhost:3000/register', {
+                                const response = await fetch(`${apiUrl}/register`, {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify({ email, name, password }),
@@ -139,7 +141,7 @@
                             const password = document.getElementById('loginPassword').value;
 
                             try {
-                                const response = await fetch('http://localhost:3000/login', {
+                                const response = await fetch(`${apiUrl}/login`, {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify({ email, password }),
@@ -181,17 +183,13 @@
                             }
 
                             try {
-                                // TODO for sure rm localhost
-                                const response = await fetch(
-                                    'http://localhost:3000/files/upload-multiple',
-                                    {
-                                        method: 'POST',
-                                        body: formData,
-                                        headers: {
-                                            Authorization: `Bearer ${token}`,
-                                        },
-                                    }
-                                );
+                                const response = await fetch(`${apiUrl}/files/upload-multiple`, {
+                                    method: 'POST',
+                                    body: formData,
+                                    headers: {
+                                        Authorization: `Bearer ${token}`,
+                                    },
+                                });
 
                                 const result = await response.json();
                                 uploadResponse.innerText = JSON.stringify(result, null, 2);
@@ -211,12 +209,9 @@
                         }
 
                         try {
-                            const response = await fetch(
-                                `http://localhost:3000/files/list?page=${page}`,
-                                {
-                                    headers: { Authorization: `Bearer ${token}` },
-                                }
-                            );
+                            const response = await fetch(`${apiUrl}/files/list?page=${page}`, {
+                                headers: { Authorization: `Bearer ${token}` },
+                            });
                             const data = await response.json();
 
                             fileList.innerHTML = '';
@@ -278,17 +273,14 @@
                             }
 
                             try {
-                                const response = await fetch(
-                                    'http://localhost:3000/files/download-multiple',
-                                    {
-                                        method: 'POST',
-                                        headers: {
-                                            'Content-Type': 'application/json',
-                                            Authorization: `Bearer ${token}`,
-                                        },
-                                        body: JSON.stringify({ filesUuids: selectedFilesUuids }),
-                                    }
-                                );
+                                const response = await fetch(`${apiUrl}/files/download-multiple`, {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        Authorization: `Bearer ${token}`,
+                                    },
+                                    body: JSON.stringify({ filesUuids: selectedFilesUuids }),
+                                });
 
                                 if (!response.ok) {
                                     throw new Error('Failed to download files');
