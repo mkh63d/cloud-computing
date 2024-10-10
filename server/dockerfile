@@ -1,7 +1,26 @@
-# Fetching the minified node image on apline linux
-FROM node:20.12-alpine3.19
+# Stage 1: Install dependencies and build Prisma client
+FROM node:18 AS builder
 
-# Setting up the work directory
+WORKDIR /app
+
+# Copy package.json and package-lock.json to install dependencies
+COPY package.json package-lock.json ./
+
+# Install project dependencies
+RUN npm install
+
+# Install Prisma CLI globally for migrations and process management
+RUN npm install -g prisma
+
+# Copy the rest of the application code
+COPY . .
+
+# Generate Prisma client
+RUN npx prisma generate
+
+# Stage 2: Production image
+FROM node:18
+
 WORKDIR /app
 
 # Declaring env
@@ -15,21 +34,21 @@ ENV AZURE_STORAGE_CONTAINER=dev-container
 ENV VIRTUAL_HOST=PUT_YOUR_DOMAIN
 ENV LETSENCRYPT_HOST=PUT_YOUR_DOMAIN
 
-COPY package.json /app
+# Install PM2 globally in the production image
+RUN npm install -g pm2
 
-# Installing dependencies
-RUN npm install
+# Copy only the node_modules and prisma client from the builder stage
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/prisma ./prisma
 
-RUN npm install pm2 -g
+RUN npm install -g prisma
+RUN npx prisma generate
 
-# Copying all the files in our project
-COPY . /app
+# Copy the rest of the application code
+COPY --from=builder /app ./
 
-# Exposing server port
+# Expose the port Fastify will run on
 EXPOSE 3000
 
-# Starting our application DEV mode
-# CMD [ "node", "index.js" ]
-
-# Starting our application PROD mode and keeping the container alive
-CMD ["sh", "-c", "pm2 start process.yml && tail -f /dev/null"]
+# Command to start the application
+CMD ["sh", "-c", "npx prisma migrate deploy && pm2 start process.yml && tail -f /dev/null"]
