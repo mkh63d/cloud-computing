@@ -4,7 +4,7 @@
         <head>
             <meta charset="UTF-8" />
             <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-            <title>File Upload & Download</title>
+            <title>Blob Buddy</title>
             <style>
                 body {
                     font-family: Arial, sans-serif;
@@ -22,7 +22,7 @@
             </style>
         </head>
         <body>
-            <h1>File Upload & Download</h1>
+            <h1>Blob Buddy</h1>
 
             <h2>Registration</h2>
             <form id="registerForm">
@@ -33,7 +33,7 @@
                     name="email"
                     required
                     placeholder="Enter your email"
-                /><br /><br />
+                /><br />
                 <label for="username">Name:</label><br />
                 <input
                     type="text"
@@ -51,7 +51,7 @@
                     name="password"
                     required
                     placeholder="Enter your password"
-                /><br /><br />
+                /><br />
                 <button type="submit">Register</button>
             </form>
             <div id="registerResponse"></div>
@@ -65,7 +65,7 @@
                     name="email"
                     required
                     placeholder="Enter your email"
-                /><br /><br />
+                /><br />
                 <label for="loginPassword">Password:</label><br />
                 <input
                     type="password"
@@ -73,10 +73,12 @@
                     name="password"
                     required
                     placeholder="Enter your password"
-                /><br /><br />
+                /><br />
                 <button type="submit">Login</button>
             </form>
             <div id="loginResponse"></div>
+            <br />
+            <br />
 
             <form id="uploadForm" enctype="multipart/form-data">
                 <label for="file">Select files:</label><br />
@@ -96,9 +98,11 @@
             <button id="downloadSelected">Download Selected Files</button>
             <div id="downloadResponse"></div>
 
-            <script>
+            <script type="module">
+                import.meta.env;
+
                 document.addEventListener('DOMContentLoaded', function () {
-                    const apiUrl = 'http://localhost:3000';
+                    const apiUrl = import.meta.env.VITE_API_URL;
 
                     const uploadResponse = document.getElementById('uploadResponse');
                     const fileList = document.getElementById('fileList');
@@ -262,7 +266,13 @@
                     document
                         .getElementById('downloadSelected')
                         .addEventListener('click', async function () {
-                            const token = tokenInput.value;
+                            const token = localStorage.getItem('authToken');
+
+                            if (!token) {
+                                alert('You must be logged in to upload files');
+                                return;
+                            }
+
                             const selectedFilesUuids = [
                                 ...document.querySelectorAll('input[name="fileCheckbox"]:checked'),
                             ].map(file => file.value);
