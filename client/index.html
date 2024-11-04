@@ -151,12 +151,22 @@
                                     headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify({ email, password }),
                                 });
+
+                                if (!response.ok) {
+                                    document.getElementById('loginResponse').innerText =
+                                        'Login failed: Invalid credentials';
+                                    return;
+                                }
+
                                 const data = await response.json();
                                 if (data.token) {
                                     localStorage.setItem('authToken', data.token);
+                                    document.getElementById('loginResponse').innerText =
+                                        'Login successful!';
+                                } else {
+                                    document.getElementById('loginResponse').innerText =
+                                        'Login failed: Token not received';
                                 }
-                                document.getElementById('loginResponse').innerText =
-                                    'Login successful!';
                             } catch (error) {
                                 document.getElementById('loginResponse').innerText =
                                     'Login failed: ' + error.message;
